@@ -5,10 +5,10 @@ import re
 
 # Configuration
 URL = "https://in.bookmyshow.com/movies/salem/jana-nayagan/buytickets/ET00430817/20260109"
-SEARCH_TEXTS = ["SPR", "Aascars"]
-CHECK_INTERVAL = 10  # Check every 10 seconds
+SEARCH_TEXTS = ["SPR", "Aascars", "Raajam", "ROX"]
+CHECK_INTERVAL = 60  # Check every 60 seconds (1 minute)
 
-# Telegram Configuration - REPLACE THESE WITH YOUR VALUES
+# Telegram Configuration
 BOT_TOKEN = "8500066528:AAEmtoOfxN7iAopaf49wbqay3_wKWXEF3PE"
 CHAT_ID = "-5061927536"
 
@@ -62,12 +62,18 @@ def check_tickets():
         response = requests.get(URL, headers=headers, timeout=30)
         response.raise_for_status()
         
+        logging.info(f"Page loaded: {len(response.text)} characters")
+        
         found_matches = []
         for text in SEARCH_TEXTS:
-            # Use Regex to find text inside a <span> tag.
-            # This avoids matching the <a> tag in the footer.
-            if re.search(r'<span[^>]*>[^<]*' + re.escape(text), response.text):
+            text = text.strip()
+            # Search anywhere in the HTML (case-insensitive)
+            if re.search(re.escape(text), response.text, re.IGNORECASE):
+                match_count = len(re.findall(re.escape(text), response.text, re.IGNORECASE))
+                logging.info(f"Found '{text}' {match_count} times in the page")
                 found_matches.append(text)
+            else:
+                logging.info(f"'{text}' NOT found in the page")
         
         if found_matches:
             match_str = ", ".join(found_matches)
