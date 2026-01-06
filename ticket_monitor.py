@@ -1,7 +1,12 @@
+from flask import Flask, jsonify
 import requests
 import time
 import logging
 import re
+import threading
+from datetime import datetime
+
+app = Flask(__name__)
 
 # Configuration
 URL = "https://in.bookmyshow.com/movies/salem/jana-nayagan/buytickets/ET00430817/20260109"
@@ -17,6 +22,16 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
+# Global monitoring status
+monitoring_status = {
+    "is_running": False,
+    "last_check": None,
+    "total_checks": 0,
+    "matches_found": 0,
+    "last_matches": [],
+    "errors": 0
+}
 
 def send_telegram_message(message):
     """Sends a message to the configured Telegram chat."""
@@ -75,25 +90,99 @@ def check_tickets():
             else:
                 logging.info(f"'{text}' NOT found in the page")
         
+        monitoring_status["last_check"] = datetime.now().isoformat()
+        monitoring_status["total_checks"] += 1
+        
         if found_matches:
             match_str = ", ".join(found_matches)
-            logging.info(f"FOUND MATCHES: '{match_str}' are present in the booking list!")
+            logging.info(f"🎉 FOUND MATCHES: '{match_str}' are present in the booking list!")
+            monitoring_status["matches_found"] += 1
+            monitoring_status["last_matches"] = found_matches
             send_telegram_message(f"🚨 TICKETS AVAILABLE! 🚨\n\nFound the following cinemas:\n{match_str}\n\nLink:\n{URL}")
+            return True
         else:
-            logging.info(f"Not found in booking list (Footer matches ignored).")
+            logging.info(f"✓ Checked successfully - No matches found")
+            monitoring_status["last_matches"] = []
+            return False
 
     except requests.exceptions.RequestException as e:
-        logging.error(f"Error fetching URL: {e}")
+        logging.error(f"❌ Error fetching URL: {e}")
+        monitoring_status["errors"] += 1
+        return False
 
-def main():
-    """Main loop."""
+def monitor_tickets_background():
+    """Background monitoring loop."""
+    monitoring_status["is_running"] = True
     logging.info("Starting Ticket Monitor...")
     logging.info(f"Target URL: {URL}")
     logging.info(f"Search Texts: {SEARCH_TEXTS}")
-
-    while True:
+    
+    while monitoring_status["is_running"]:
         check_tickets()
         time.sleep(CHECK_INTERVAL)
 
+@app.route('/')
+def home():
+    """Root endpoint."""
+    return jsonify({
+        "message": "Ticket Monitor API",
+        "endpoints": {
+            "/status": "Get monitoring status",
+            "/check": "Manually trigger a check",
+            "/start": "Start monitoring",
+            "/stop": "Stop monitoring"
+        }
+    })
+
+@app.route('/status')
+def status():
+    """Get monitoring status."""
+    return jsonify({
+        "status": "running" if monitoring_status["is_running"] else "stopped",
+        "monitoring_url": URL,
+        "search_texts": SEARCH_TEXTS,
+        "check_interval": CHECK_INTERVAL,
+        "last_check": monitoring_status["last_check"],
+        "total_checks": monitoring_status["total_checks"],
+        "matches_found": monitoring_status["matches_found"],
+        "last_matches": monitoring_status["last_matches"],
+        "errors": monitoring_status["errors"]
+    })
+
+@app.route('/check')
+def manual_check():
+    """Manually trigger a check."""
+    found = check_tickets()
+    return jsonify({
+        "checked": True,
+        "found_matches": found,
+        "last_matches": monitoring_status["last_matches"],
+        "timestamp": datetime.now().isoformat()
+    })
+
+@app.route('/start')
+def start_monitoring():
+    """Start background monitoring."""
+    if monitoring_status["is_running"]:
+        return jsonify({"message": "Monitoring is already running"})
+    
+    thread = threading.Thread(target=monitor_tickets_background, daemon=True)
+    thread.start()
+    return jsonify({"message": "Monitoring started"})
+
+@app.route('/stop')
+def stop_monitoring():
+    """Stop background monitoring."""
+    if not monitoring_status["is_running"]:
+        return jsonify({"message": "Monitoring is not running"})
+    
+    monitoring_status["is_running"] = False
+    return jsonify({"message": "Monitoring stopped"})
+
 if __name__ == "__main__":
-    main()
+    # Start monitoring in background thread
+    monitor_thread = threading.Thread(target=monitor_tickets_background, daemon=True)
+    monitor_thread.start()
+    
+    # Start Flask app
+    app.run(host='0.0.0.0', port=8080)
