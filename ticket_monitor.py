@@ -70,26 +70,44 @@ def check_tickets():
     """Checks the URL for the search texts."""
     logging.info(f"Checking URL: {URL}")
     
-    # Rotate user agent and add random delay
+    # Rotate user agent and add random delay (2-4 seconds to appear more human)
     user_agent = random.choice(USER_AGENTS)
-    time.sleep(random.uniform(0.5, 1.5))
+    time.sleep(random.uniform(2, 4))
+    
+    # More realistic browser headers with random referer
+    referers = [
+        "https://www.google.com/",
+        "https://www.google.co.in/",
+        "https://in.bookmyshow.com/",
+        ""
+    ]
     
     headers = {
         "User-Agent": user_agent,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "Accept-Language": "en-US,en-IN;q=0.9,en;q=0.8",
         "Accept-Encoding": "gzip, deflate, br",
         "Connection": "keep-alive",
         "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1",
         "Cache-Control": "max-age=0",
-        "DNT": "1"
+        "sec-ch-ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-User": "?1",
+        "Sec-Fetch-Dest": "document"
     }
+    
+    # Add referer randomly
+    if random.choice([True, False]):
+        headers["Referer"] = random.choice(referers)
 
     try:
+        # Clear session cookies occasionally
+        if random.randint(1, 5) == 1:
+            session.cookies.clear()
+        
         response = session.get(URL, headers=headers, timeout=30, allow_redirects=True)
         response.raise_for_status()
         
@@ -202,10 +220,17 @@ def stop_monitoring():
     monitoring_status["is_running"] = False
     return jsonify({"message": "Monitoring stopped"})
 
+# Start background monitoring when the app loads (for Gunicorn)
+def start_background_monitoring():
+    """Initialize background monitoring thread."""
+    if not monitoring_status["is_running"]:
+        monitor_thread = threading.Thread(target=monitor_tickets_background, daemon=True)
+        monitor_thread.start()
+        logging.info("Background monitoring initialized")
+
+# Auto-start monitoring when module loads
+start_background_monitoring()
+
 if __name__ == "__main__":
-    # Start monitoring in background thread
-    monitor_thread = threading.Thread(target=monitor_tickets_background, daemon=True)
-    monitor_thread.start()
-    
-    # Start Flask app
+    # Start Flask app (for local development)
     app.run(host='0.0.0.0', port=8080)
