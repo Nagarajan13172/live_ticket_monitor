@@ -9,7 +9,7 @@ from datetime import datetime
 
 # Configuration from environment variables
 URL = os.getenv("MONITOR_URL", "https://in.bookmyshow.com/movies/salem/jana-nayagan/buytickets/ET00430817/20260109")
-SEARCH_TEXTS = os.getenv("SEARCH_TEXTS", "SPR,Aascars").split(",")
+SEARCH_TEXTS = os.getenv("SEARCH_TEXTS", "SPR,Aascars,Raajam").split(",")
 CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "10"))  # Check every 10 seconds
 
 # Telegram Configuration
