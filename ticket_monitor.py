@@ -11,8 +11,8 @@ from datetime import datetime
 
 # Configuration from environment variables
 URL = os.getenv("MONITOR_URL", "https://in.bookmyshow.com/movies/salem/jana-nayagan/buytickets/ET00430817/20260109")
-SEARCH_TEXTS = os.getenv("SEARCH_TEXTS", "SPR,Aascars,Raajam").split(",")
-CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "10"))  # Check every 10 seconds
+SEARCH_TEXTS = os.getenv("SEARCH_TEXTS", "SPR,Aascars,Raajam,ROX").split(",")
+CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "60"))  # Check every 60 seconds (1 minute)
 
 # Telegram Configuration
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8500066528:AAEmtoOfxN7iAopaf49wbqay3_wKWXEF3PE")
@@ -98,11 +98,31 @@ def check_tickets():
         response = session.get(URL, headers=headers, timeout=30, allow_redirects=True)
         response.raise_for_status()
         
+        # Log page size for debugging
+        logging.info(f"Page loaded: {len(response.text)} characters")
+        
         found_matches = []
         for text in SEARCH_TEXTS:
-            # Use Regex to find text inside a <span> tag.
-            if re.search(r'<span[^>]*>[^<]*' + re.escape(text), response.text):
-                found_matches.append(text)
+            text = text.strip()  # Remove any whitespace
+            # Search for the text anywhere in the HTML (case-insensitive)
+            # This will find it in venue lists, not just footer links
+            pattern = re.compile(re.escape(text), re.IGNORECASE)
+            
+            # Count all occurrences
+            all_matches = pattern.findall(response.text)
+            
+            if all_matches:
+                # Check if it appears in the main content (more than just footer)
+                # Footer usually has only 1-2 mentions, venue list has more
+                match_count = len(all_matches)
+                logging.info(f"Found '{text}' {match_count} times in the page")
+                
+                # If found at least once, consider it available
+                # (You can adjust this logic if needed)
+                if match_count > 0:
+                    found_matches.append(text)
+            else:
+                logging.info(f"'{text}' NOT found in the page")
         
         monitoring_status["last_check"] = datetime.now().isoformat()
         monitoring_status["total_checks"] += 1
