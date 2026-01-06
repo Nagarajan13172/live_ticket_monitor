@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "ticket_monitor.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "ticket_monitor.py"
+    }
+  ],
+  "env": {
+    "MONITOR_URL": "https://in.bookmyshow.com/movies/salem/jana-nayagan/buytickets/ET00430817/20260109",
+    "SEARCH_TEXTS": "SPR,Aascars",
+    "CHECK_INTERVAL": "10"
+  }
+}
