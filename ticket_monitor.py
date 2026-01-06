@@ -5,6 +5,8 @@ import asyncio
 import logging
 import re
 import os
+import random
+import time as time_module
 from datetime import datetime
 
 # Configuration from environment variables
@@ -30,8 +32,23 @@ monitoring_status = {
     "last_check": None,
     "total_checks": 0,
     "matches_found": 0,
-    "last_matches": []
+    "last_matches": [],
+    "errors": 0,
+    "last_error": None
 }
+
+# Session for connection reuse
+session = requests.Session()
+
+# List of user agents to rotate
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+]
 
 def send_telegram_message(message):
     """Sends a message to the configured Telegram chat."""
@@ -56,25 +73,29 @@ def check_tickets():
     """Checks the URL for the search texts."""
     logging.info(f"Checking URL: {URL}")
     
+    # Rotate user agent
+    user_agent = random.choice(USER_AGENTS)
+    
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "User-Agent": user_agent,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
         "Accept-Encoding": "gzip, deflate, br",
-        "Referer": "https://www.google.com/",
+        "Connection": "keep-alive",
         "Upgrade-Insecure-Requests": "1",
-        "Sec-Ch-Ua": '"Microsoft Edge";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
-        "Sec-Ch-Ua-Mobile": "?0",
-        "Sec-Ch-Ua-Platform": '"Windows"',
         "Sec-Fetch-Dest": "document",
         "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "cross-site",
+        "Sec-Fetch-Site": "none",
         "Sec-Fetch-User": "?1",
         "Cache-Control": "max-age=0",
+        "DNT": "1"
     }
 
     try:
-        response = requests.get(URL, headers=headers, timeout=30)
+        # Add small random delay to appear more human-like
+        time_module.sleep(random.uniform(0.5, 1.5))
+        
+        response = session.get(URL, headers=headers, timeout=30, allow_redirects=True)
         response.raise_for_status()
         
         found_matches = []
@@ -88,18 +109,30 @@ def check_tickets():
         
         if found_matches:
             match_str = ", ".join(found_matches)
-            logging.info(f"FOUND MATCHES: '{match_str}' are present in the booking list!")
+            logging.info(f"🎉 FOUND MATCHES: '{match_str}' are present in the booking list!")
             monitoring_status["matches_found"] += 1
             monitoring_status["last_matches"] = found_matches
             send_telegram_message(f"🚨 TICKETS AVAILABLE! 🚨\n\nFound the following cinemas:\n{match_str}\n\nLink:\n{URL}")
             return True
         else:
-            logging.info(f"Not found in booking list (Footer matches ignored).")
+            logging.info(f"✓ Checked successfully - No matches found (Footer matches ignored).")
             monitoring_status["last_matches"] = []
             return False
 
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 403:
+            logging.warning(f"⚠️  403 Forbidden - Website blocking request. Will retry with different user agent...")
+            monitoring_status["errors"] += 1
+            monitoring_status["last_error"] = f"403 Forbidden at {datetime.now().isoformat()}"
+        else:
+            logging.error(f"❌ HTTP Error: {e}")
+            monitoring_status["errors"] += 1
+            monitoring_status["last_error"] = f"{e} at {datetime.now().isoformat()}"
+        return False
     except requests.exceptions.RequestException as e:
-        logging.error(f"Error fetching URL: {e}")
+        logging.error(f"❌ Error fetching URL: {e}")
+        monitoring_status["errors"] += 1
+        monitoring_status["last_error"] = f"{e} at {datetime.now().isoformat()}"
         return False
 
 async def monitor_tickets_background():
@@ -143,7 +176,9 @@ async def get_status():
         "last_check": monitoring_status["last_check"],
         "total_checks": monitoring_status["total_checks"],
         "matches_found": monitoring_status["matches_found"],
-        "last_matches": monitoring_status["last_matches"]
+        "last_matches": monitoring_status["last_matches"],
+        "errors": monitoring_status["errors"],
+        "last_error": monitoring_status["last_error"]
     })
 
 @app.post("/check")
